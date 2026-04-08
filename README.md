@@ -24,12 +24,12 @@ annotation-tool/
 
 ### From scratch
 
-1. Load codebook → editors are ready
+1. Load codebook → will populate editor fields
 2. Load PDF → paper opens in left panel
 3. Enter the DOI/paper ID in the toolbar
 4. Click **+ Node** to add each workflow step; fill in the editor on the right
 5. Click **+ Edge** to connect nodes; fill in interaction details
-6. Click **Derive Patterns** to auto-detect structural motifs (needs to be linked to a script) 
+6. Click **Derive Patterns** to auto-detect structural motifs (needs to be linked to a derive script) 
 7. Fill in workflow-level **metadata** by clicking the Metadata button
 8. Export: **Export Nodes**, **Export Edges**, **Export Metadata**
 
