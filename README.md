@@ -1,4 +1,4 @@
-# FAIRWorkflows# Annotation Tool
+# FAIRWorkflows - Workflow Annotation Tool
 
 A self-contained, browser-based annotation tool for capturing workflows from academic papers. You an open `index.html` in any modern browser.
 
