@@ -1,0 +1,1436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HIW4KE Annotation Tool</title>
+    <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+    <script src="https://unpkg.com/marked@9.1.6/marked.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex; flex-direction: column; height: 100vh; background: #1a1a2e;
+        }
+
+        /* ── Toolbar ── */
+        .toolbar {
+            background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
+            color: white; padding: 8px 16px; display: flex; align-items: center;
+            gap: 12px; border-bottom: 1px solid #333; z-index: 100; flex-wrap: wrap;
+        }
+        .toolbar h1 { font-size: 14px; font-weight: 600; flex-shrink: 0; }
+        .toolbar-doi {
+            font-size: 11px; background: #0f1826; border: 1px solid #444; color: #ccc;
+            padding: 4px 8px; border-radius: 4px; width: 220px;
+        }
+        .toolbar-doi:focus { outline: none; border-color: #4a90d9; }
+        .toolbar-controls { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; align-items: center; }
+        .toolbar button {
+            background: #4a90d9; color: white; border: none; padding: 6px 12px;
+            border-radius: 5px; cursor: pointer; font-size: 12px; transition: background 0.2s;
+            white-space: nowrap;
+        }
+        .toolbar button:hover { background: #357abd; }
+        .toolbar button.export-btn { background: #27ae60; }
+        .toolbar button.export-btn:hover { background: #219a52; }
+        .toolbar button.add-btn { background: #8e44ad; }
+        .toolbar button.add-btn:hover { background: #7d3c98; }
+        .toolbar button.upload-btn { background: #2980b9; }
+        .toolbar button.upload-btn:hover { background: #2471a3; }
+        .toolbar input[type="file"] { display: none; }
+        .toolbar-sep { width: 1px; height: 24px; background: #444; flex-shrink: 0; }
+        .unsaved-indicator {
+            background: #e74c3c; color: white; padding: 3px 8px; border-radius: 10px;
+            font-size: 10px; font-weight: 600; display: none;
+        }
+        .unsaved-indicator.visible { display: inline-block; }
+
+        /* ── Main layout ── */
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+
+        /* ── Left panel (codebook / PDF) ── */
+        #codebook-panel {
+            width: 32%; background: #2a2a3e; display: flex; flex-direction: column;
+            border-right: 1px solid #333; color: #ddd; overflow: hidden;
+        }
+        #codebook-panel .panel-header {
+            background: #16213e; color: white; padding: 0;
+            font-size: 13px; font-weight: 600; position: sticky; top: 0; z-index: 10;
+        }
+        .panel-tabs { display: flex; border-bottom: 1px solid #333; }
+        .panel-tab {
+            flex: 1; padding: 10px 12px; cursor: pointer; text-align: center;
+            background: #1a1a2e; transition: background 0.2s; border: none; color: #888;
+            font-size: 12px; font-weight: 600;
+        }
+        .panel-tab:hover { background: #2a2a4e; color: #bbb; }
+        .panel-tab.active { background: #16213e; color: white; border-bottom: 2px solid #4a90d9; }
+
+        .codebook-content { padding: 14px; font-size: 11px; line-height: 1.6; overflow-y: auto; flex: 1; }
+        .codebook-content.active { display: block; }
+        .codebook-content:not(.active) { display: none; }
+
+        /* Markdown rendered styles */
+        .codebook-content h1 { color: #4a90d9; font-size: 14px; margin: 16px 0 8px; }
+        .codebook-content h2 { color: #4a90d9; font-size: 13px; margin: 14px 0 7px; }
+        .codebook-content h3 { color: #4a90d9; font-size: 12px; margin: 12px 0 6px; }
+        .codebook-content h1:first-child, .codebook-content h2:first-child, .codebook-content h3:first-child { margin-top: 0; }
+        .codebook-content p { margin: 5px 0; color: #aaa; }
+        .codebook-content ul, .codebook-content ol { padding-left: 18px; color: #aaa; margin: 5px 0; }
+        .codebook-content li { margin: 2px 0; }
+        .codebook-content code {
+            background: #333; padding: 1px 4px; border-radius: 3px; font-size: 10px; color: #e8d44d;
+        }
+        .codebook-content pre {
+            background: #1a1a2e; padding: 8px; border-radius: 4px; overflow-x: auto; margin: 6px 0;
+        }
+        .codebook-content pre code { background: none; padding: 0; color: #b2dfdb; }
+        .codebook-content table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 10px; }
+        .codebook-content th, .codebook-content td { border: 1px solid #444; padding: 4px 6px; text-align: left; }
+        .codebook-content th { background: #333; color: #ddd; }
+        .codebook-content td { color: #bbb; }
+        .codebook-content hr { border: none; border-top: 1px solid #444; margin: 12px 0; }
+        .codebook-content strong { color: #ddd; }
+        .codebook-content blockquote { border-left: 3px solid #4a90d9; padding-left: 10px; color: #888; margin: 6px 0; }
+        .codebook-content details { border: 1px solid #555; border-radius: 5px; padding: 6px 10px; margin: 8px 0; background: #1e1e30; }
+        .codebook-content summary { cursor: pointer; font-weight: 600; color: #aaa; }
+
+        .codebook-placeholder {
+            flex: 1; display: flex; flex-direction: column; justify-content: center;
+            align-items: center; color: #555; text-align: center; padding: 20px;
+        }
+        .codebook-placeholder svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.3; }
+        .codebook-placeholder p { margin: 4px 0; font-size: 12px; }
+        .codebook-upload-btn {
+            margin-top: 12px; padding: 8px 16px; background: #2980b9; color: white;
+            border: none; border-radius: 5px; cursor: pointer; font-size: 12px;
+        }
+        .codebook-upload-btn:hover { background: #2471a3; }
+
+        #pdf-content { flex: 1; display: none; flex-direction: column; overflow: hidden; }
+        #pdf-content.active { display: flex; }
+        #pdf-viewer { flex: 1; border: none; background: #1a1a2e; }
+        #pdf-placeholder {
+            flex: 1; display: flex; flex-direction: column; justify-content: center;
+            align-items: center; color: #555; text-align: center; padding: 20px;
+        }
+        #pdf-placeholder svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.3; }
+        #pdf-placeholder p { margin: 4px 0; font-size: 12px; }
+        .pdf-upload-btn {
+            margin-top: 12px; padding: 8px 16px; background: #2980b9; color: white;
+            border: none; border-radius: 5px; cursor: pointer; font-size: 12px;
+        }
+        .pdf-upload-btn:hover { background: #2471a3; }
+
+        /* ── Resizer ── */
+        .resizer { width: 5px; background: #333; cursor: col-resize; transition: background 0.2s; flex-shrink: 0; }
+        .resizer:hover { background: #4a90d9; }
+
+        /* ── Graph panel ── */
+        #graph-panel { width: 36%; background: white; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+        .pattern-overlay { position: absolute; border-radius: 10px; pointer-events: none; z-index: 0; }
+        .pattern-label {
+            position: absolute; font-size: 10px; font-weight: 600; padding: 1px 6px;
+            border-radius: 3px; pointer-events: auto; cursor: pointer; z-index: 1; white-space: nowrap;
+        }
+        .pattern-label:hover { outline: 2px solid #4a90d9; }
+        #graph-panel .panel-header { background: #4a90d9; color: white; padding: 8px 14px; font-size: 12px; font-weight: 600; }
+        #cy { flex: 1; }
+
+        /* ── Details panel ── */
+        #details-panel { width: 32%; background: white; display: flex; flex-direction: column; border-left: 1px solid #ddd; }
+        #details-panel .panel-header { background: #f8f9fa; color: #333; padding: 8px 14px; font-size: 12px; font-weight: 600; border-bottom: 1px solid #ddd; }
+        #sidebar { flex: 1; overflow-y: auto; padding: 14px; }
+        #sidebar h2 { color: #333; font-size: 15px; margin-bottom: 10px; padding-bottom: 7px; border-bottom: 2px solid #4a90d9; }
+        .field { margin-bottom: 10px; padding: 8px 10px; background: #f8f9fa; border-radius: 5px; border-left: 3px solid #4a90d9; }
+        .field-label { font-weight: 600; color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .field-input { width: 100%; padding: 5px 7px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; font-family: inherit; resize: vertical; }
+        .field-input:focus { outline: none; border-color: #4a90d9; box-shadow: 0 0 0 2px rgba(74,144,217,0.2); }
+        .field-select { width: 100%; padding: 5px 7px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; font-family: inherit; background: white; }
+        .field-select:focus { outline: none; border-color: #4a90d9; }
+        textarea.field-input { min-height: 55px; }
+        .chip-container { display: flex; flex-wrap: wrap; gap: 3px; padding: 5px; border: 1px solid #ddd; border-radius: 4px; background: #f8f9fa; min-height: 32px; }
+        .node-chip { display: inline-flex; align-items: center; gap: 2px; background: #e3f2fd; color: #1565c0; padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+        .chip-remove { cursor: pointer; font-size: 13px; line-height: 1; opacity: 0.6; margin-left: 1px; }
+        .chip-remove:hover { opacity: 1; }
+        .multi-select-wrapper { margin-top: 3px; }
+        .multi-select-wrapper select { width: 100%; padding: 3px 7px; font-size: 11px; }
+        #placeholder { color: #888; text-align: center; padding: 25px 14px; }
+        #placeholder svg { width: 44px; height: 44px; margin-bottom: 12px; opacity: 0.3; }
+        .badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 600; margin-right: 4px; }
+        .badge-human { background: #fff3e0; color: #e65100; }
+        .badge-machine { background: #e3f2fd; color: #1565c0; }
+        .badge-conditional-branching { background: #ffebee; color: #c62828; }
+        #details-content { display: none; }
+        .delete-btn { background: #e74c3c; color: white; border: none; padding: 7px 14px; border-radius: 5px; cursor: pointer; font-size: 11px; margin-top: 12px; width: 100%; }
+        .delete-btn:hover { background: #c0392b; }
+        .legend { margin-top: 18px; padding-top: 12px; border-top: 1px solid #eee; font-size: 10px; }
+        .legend h3 { font-size: 10px; color: #666; margin-bottom: 8px; text-transform: uppercase; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 5px; }
+        .legend-color { width: 14px; height: 14px; border-radius: 3px; margin-right: 7px; border: 1px solid rgba(0,0,0,0.2); }
+        .legend-supertype { font-weight: 600; color: #555; margin-top: 6px; margin-bottom: 3px; font-size: 10px; }
+        .create-form-buttons { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee; }
+        .create-form-buttons button { padding: 7px 14px; border-radius: 5px; cursor: pointer; font-size: 12px; flex: 1; border: none; }
+        .create-form-buttons .cancel-btn { background: #ecf0f1; color: #333; }
+        .create-form-buttons .cancel-btn:hover { background: #dfe6e9; }
+        .create-form-buttons .save-btn { background: #27ae60; color: white; }
+        .create-form-buttons .save-btn:hover { background: #219a52; }
+        .stage-selector, .insert-position { margin-bottom: 10px; padding: 8px 10px; background: #f0f4ff; border-radius: 5px; border-left: 3px solid #8e44ad; }
+        .stage-selector .field-label, .insert-position .field-label { color: #8e44ad; }
+        .shortcut-hint { font-size: 10px; color: #666; margin-top: 8px; padding: 7px; background: #f0f0f0; border-radius: 4px; }
+        .pattern-dropdown { position: absolute; top: 100%; right: 0; background: white; border: 1px solid #ddd; border-radius: 7px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 6px 0; min-width: 170px; z-index: 200; display: none; }
+        .pattern-dropdown.open { display: block; }
+        .pattern-dropdown-item { display: flex; align-items: center; gap: 7px; padding: 5px 12px; cursor: pointer; font-size: 11px; color: #333; transition: background 0.15s; }
+        .pattern-dropdown-item:hover { background: #f5f5f5; }
+        .pattern-dropdown-item input[type="checkbox"] { accent-color: #607D8B; }
+        .pattern-dropdown-swatch { width: 9px; height: 9px; border-radius: 2px; border: 1.5px solid; }
+        .pattern-dropdown-sep { height: 1px; background: #eee; margin: 3px 0; }
+        .pattern-btn-wrap { position: relative; display: inline-block; }
+
+        /* Load data section in toolbar */
+        .load-section { display: flex; gap: 4px; align-items: center; }
+        .load-section label { font-size: 10px; color: #888; }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <div>
+            <h1>HIW4KE Annotation Tool</h1>
+        </div>
+        <input type="text" class="toolbar-doi" id="doi-input" placeholder="DOI or paper ID..." oninput="updateDOI()">
+        <span class="unsaved-indicator" id="unsaved-indicator">Unsaved changes</span>
+        <div class="toolbar-controls">
+            <!-- Upload inputs (hidden) -->
+            <input type="file" id="codebook-input" accept=".md,.txt" onchange="loadCodebook(event)">
+            <input type="file" id="pdf-input" accept=".pdf" onchange="loadPDF(event)">
+            <input type="file" id="nodes-csv-input" accept=".csv" onchange="loadNodesCSV(event)">
+            <input type="file" id="edges-csv-input" accept=".csv" onchange="loadEdgesCSV(event)">
+            <input type="file" id="metadata-csv-input" accept=".csv" onchange="loadMetadataCSV(event)">
+            <input type="file" id="patterns-csv-input" accept=".csv" onchange="loadPatternsCSV(event)">
+
+            <!-- Load buttons -->
+            <button class="upload-btn" onclick="document.getElementById('codebook-input').click()">Load Codebook</button>
+            <button class="upload-btn" onclick="document.getElementById('pdf-input').click()">Load PDF</button>
+            <button class="upload-btn" onclick="document.getElementById('nodes-csv-input').click()">Load Nodes CSV</button>
+            <button class="upload-btn" onclick="document.getElementById('edges-csv-input').click()">Load Edges CSV</button>
+            <button class="upload-btn" onclick="document.getElementById('metadata-csv-input').click()">Load Metadata CSV</button>
+            <div class="toolbar-sep"></div>
+            <button onclick="cy.fit(30)">Fit</button>
+            <button onclick="cy.zoom(cy.zoom() * 1.2)">+</button>
+            <button onclick="cy.zoom(cy.zoom() / 1.2)">−</button>
+            <button onclick="showMetadataDetails()" style="background:#3498db;">Metadata</button>
+            <span class="pattern-btn-wrap">
+                <button id="pattern-toggle" onclick="togglePatternDropdown(event)" style="background:#607D8B;">Patterns &#9662;</button>
+                <div class="pattern-dropdown" id="pattern-dropdown"></div>
+            </span>
+            <button class="add-btn" onclick="showAddNodeForm()">+ Node</button>
+            <button class="add-btn" onclick="showAddEdgeForm()">+ Edge</button>
+            <button class="add-btn" onclick="showAddPatternForm()">+ Pattern</button>
+            <button onclick="runDerivePatterns()" style="background:#607D8B;">Derive Patterns</button>
+            <div class="toolbar-sep"></div>
+            <button class="export-btn" onclick="exportMetadataCSV()">Export Metadata</button>
+            <button class="export-btn" onclick="exportNodesCSV()">Export Nodes</button>
+            <button class="export-btn" onclick="exportEdgesCSV()">Export Edges</button>
+            <button class="export-btn" onclick="exportPatternsCSV()">Export Patterns</button>
+            <button class="export-btn" onclick="exportHTML()" style="background:#8e44ad;">Export HTML</button>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <!-- Left panel -->
+        <div id="codebook-panel">
+            <div class="panel-header">
+                <div class="panel-tabs">
+                    <button class="panel-tab active" onclick="switchTab('codebook')">Codebook</button>
+                    <button class="panel-tab" onclick="switchTab('pdf')">Paper PDF</button>
+                </div>
+            </div>
+            <div class="codebook-content active" id="codebook-content">
+                <div class="codebook-placeholder" id="codebook-placeholder">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,18V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                    </svg>
+                    <p><strong>No codebook loaded</strong></p>
+                    <p>Upload your annotation instructions<br>(.md or .txt file)</p>
+                    <button class="codebook-upload-btn" onclick="document.getElementById('codebook-input').click()">Load Codebook</button>
+                </div>
+            </div>
+            <div id="pdf-content">
+                <div id="pdf-placeholder">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,18V8L14,2M18,20H6V4H13V9H18V20M10,13H7V11H10V13M14,13H11V11H14V13M10,16H7V14H10V16M14,16H11V14H14V16M10,19H7V17H10V19M14,19H11V17H14V19Z"/>
+                    </svg>
+                    <p><strong>No PDF loaded</strong></p>
+                    <p>Click "Load PDF" in the toolbar</p>
+                    <button class="pdf-upload-btn" onclick="document.getElementById('pdf-input').click()">Load PDF</button>
+                </div>
+                <iframe id="pdf-viewer" style="display:none;"></iframe>
+            </div>
+        </div>
+
+        <div class="resizer" id="resizer1"></div>
+
+        <div id="graph-panel">
+            <div class="panel-header">Workflow Graph — click to edit</div>
+            <div id="cy"></div>
+        </div>
+
+        <div class="resizer" id="resizer2"></div>
+
+        <div id="details-panel">
+            <div class="panel-header">Details &amp; Editor</div>
+            <div id="sidebar">
+                <div id="placeholder">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                    <p><strong>Click a node or edge</strong><br>to view and edit details</p>
+                    <div class="shortcut-hint">
+                        <strong>Getting started:</strong><br>
+                        1. Load your codebook (.md)<br>
+                        2. Load the paper PDF<br>
+                        3. Add nodes with "+ Node"<br>
+                        4. Connect with "+ Edge"<br>
+                        5. Export CSVs when done
+                    </div>
+                </div>
+                <div id="details-content"></div>
+                <div class="legend" id="node-legend"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ── State ──────────────────────────────────────────────────────────────────
+        let DOI = '';
+        let hasUnsavedChanges = false;
+        let currentSelection = null;
+        let currentSelectionType = null;
+        let nodesData = [];
+        let edgesData = [];
+        let metadataData = {};
+        let patternGroups = [];
+        const patternTypeVisible = {};
+        let currentGroup = null;
+        let newEdgeFormData = {};
+        let lastCodebookSections = null;
+
+        // ── DOI ────────────────────────────────────────────────────────────────────
+        function updateDOI() {
+            DOI = document.getElementById('doi-input').value.trim();
+            metadataData.DOI = DOI;
+            markUnsaved();
+        }
+
+        // ── Unsaved indicator ──────────────────────────────────────────────────────
+        function markUnsaved() {
+            hasUnsavedChanges = true;
+            document.getElementById('unsaved-indicator').classList.add('visible');
+        }
+        function markSaved() {
+            hasUnsavedChanges = false;
+            document.getElementById('unsaved-indicator').classList.remove('visible');
+        }
+
+        // ── Tab switching ──────────────────────────────────────────────────────────
+        function switchTab(tab) {
+            const cbTab = document.querySelector('.panel-tab:first-child');
+            const pdfTab = document.querySelector('.panel-tab:last-child');
+            const cbContent = document.getElementById('codebook-content');
+            const pdfContent = document.getElementById('pdf-content');
+            if (tab === 'codebook') {
+                cbTab.classList.add('active'); pdfTab.classList.remove('active');
+                cbContent.classList.add('active'); pdfContent.classList.remove('active');
+            } else {
+                cbTab.classList.remove('active'); pdfTab.classList.add('active');
+                cbContent.classList.remove('active'); pdfContent.classList.add('active');
+            }
+        }
+
+        // ── File loaders ───────────────────────────────────────────────────────────
+        function loadCodebook(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const md = e.target.result;
+                const html = marked.parse(md);
+                const cbContent = document.getElementById('codebook-content');
+                cbContent.innerHTML = html;
+                cbContent.classList.add('active');
+                switchTab('codebook');
+                lastCodebookSections = parseCodebookMarkdown(md);
+                applyCodebookToFields(lastCodebookSections);
+            };
+            reader.readAsText(file);
+        }
+
+        // Color palettes — just hex arrays, no code names
+        const _warmPalette = ['#FFE0B2','#FFAB91','#FFCC80','#FFF9C4','#FFE082','#FFCDD2','#F8BBD0','#DCEDC8'];
+        const _coolPalette = ['#90CAF9','#B2EBF2','#E3F2FD','#C5CAE9','#B2DFDB','#B3E5FC','#BBDEFB','#C8E6C9'];
+        const _edgePalette = ['#2196F3','#9C27B0','#FF9800','#E91E63','#009688','#FF5722','#607D8B','#795548'];
+        let subtypeColorMap   = {};
+        let wireTypeColorMap  = {};
+        let agentTypeShapes   = {};  // agentTypeCode → 'ellipse' | 'round-rectangle'
+        let agentTypeBadges   = {};  // agentTypeCode → CSS class string
+
+        // Parse code tables and field-definition tables from markdown.
+        // Returns { sections: { heading: [codes], ... }, fieldDefs: { heading: [{key,label,type}] } }
+        // Code tables: first col header is "Code", "Wire Type", or "Motif"
+        // Field-def tables: first col header is "Key"
+        // Bold lines (**text:**) are sub-sections within a heading.
+        function parseCodebookMarkdown(md) {
+            const sections = {};
+            const fieldDefs = {};
+            let heading = '', sub = '';
+            let mode = null; // 'code' | 'field' | null
+            let headerDone = false, codeCol = -1;
+            const CODE_COLS = new Set(['code', 'wire type', 'motif']);
+            const clean = s => s.toLowerCase().replace(/[*_`():?]/g, '').replace(/\s+/g, ' ').trim();
+
+            function pushCode(code) {
+                const keys = sub ? [heading, heading + '::' + sub] : [heading];
+                keys.forEach(k => {
+                    if (!sections[k]) sections[k] = [];
+                    if (!sections[k].includes(code)) sections[k].push(code);
+                });
+            }
+
+            for (const line of md.split('\n')) {
+                const hm = line.match(/^(#{1,6})\s+(.+)/);
+                if (hm) { heading = clean(hm[2]); sub = ''; mode = null; headerDone = false; codeCol = -1; continue; }
+                const bm = line.match(/^\*\*([^*]+)\*\*\s*:?\s*$/);
+                if (bm) { sub = clean(bm[1]); mode = null; headerDone = false; codeCol = -1; continue; }
+                if (line.trim().startsWith('|')) {
+                    const cells = line.split('|').slice(1, -1).map(c => c.trim());
+                    if (!cells.length) continue;
+                    if (!headerDone) {
+                        headerDone = true;
+                        const first = cells[0].toLowerCase().replace(/[*_`]/g, '');
+                        if (CODE_COLS.has(first)) { mode = 'code'; codeCol = 0; }
+                        else if (first === 'key') { mode = 'field'; }
+                        else mode = null;
+                        continue;
+                    }
+                    if (cells[0].replace(/[-: ]/g, '') === '') continue; // separator
+                    if (mode === 'code') {
+                        const code = cells[codeCol].replace(/`/g, '').trim();
+                        if (code && !code.startsWith('*') && !code.startsWith('(')) pushCode(code);
+                    } else if (mode === 'field' && cells.length >= 3) {
+                        const key = cells[0].replace(/`/g, '').trim();
+                        const label = cells[1].trim();
+                        const type = cells[2].trim().toLowerCase();
+                        if (key) {
+                            if (!fieldDefs[heading]) fieldDefs[heading] = [];
+                            fieldDefs[heading].push({ key, label, type });
+                        }
+                    }
+                } else if (line.trim()) { mode = null; headerDone = false; codeCol = -1; }
+            }
+            return { sections, fieldDefs };
+        }
+
+        // Build a field array from a field-def list, auto-appending _Quote textareas.
+        function buildFieldsFromDefs(defs) {
+            const result = [];
+            const quoteableTypes = new Set(['select', 'multi-select', 'text']);
+            for (const def of defs) {
+                const type = def.type === 'derived' ? 'readonly-text' : def.type;
+                const field = { key: def.key, label: def.label, type };
+                if (type === 'select') field.options = [''];
+                else if (type === 'multi-select') field.options = [];
+                result.push(field);
+                if (quoteableTypes.has(def.type)) {
+                    result.push({ key: def.key + '_Quote', label: def.label + ' Quote', type: 'textarea' });
+                }
+            }
+            return result;
+        }
+
+        // Populate field arrays and color maps entirely from parsed codebook.
+        function applyCodebookToFields({ sections, fieldDefs }) {
+            const norm = s => s.toLowerCase().replace(/[_()\-]+/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+
+            // Build field arrays from codebook field-def tables if present
+            for (const [h, defs] of Object.entries(fieldDefs)) {
+                if (h.includes('metadata')) metadataFields = buildFieldsFromDefs(defs);
+                else if (h.includes('node')) nodeFields = buildFieldsFromDefs(defs);
+                else if (h.includes('edge')) edgeFields = buildFieldsFromDefs(defs);
+            }
+
+            function bestMatch(label, key) {
+                let top = null, topScore = 0;
+                for (const k of Object.keys(sections)) {
+                    if (k.includes('::')) continue;
+                    const h = norm(k);
+                    for (const t of [norm(label), norm(key)]) {
+                        let s = 0;
+                        if (h === t) s = 100;
+                        else if (h.includes(t) || t.includes(h)) s = 80;
+                        else s = t.split(' ').filter(w => w.length > 2).filter(w => new Set(h.split(' ')).has(w)).length * 20;
+                        if (s > topScore) { topScore = s; top = k; }
+                    }
+                }
+                return topScore >= 20 ? top : null;
+            }
+
+            // Populate options for select/multi-select fields
+            for (const field of [...metadataFields, ...nodeFields, ...edgeFields]) {
+                if (field.type !== 'select' && field.type !== 'multi-select') continue;
+                if ((field.options || []).some(o => o !== '')) continue;
+                const sec = bestMatch(field.label, field.key);
+                if (!sec) continue;
+                field.options = field.type === 'multi-select' ? [...sections[sec]] : ['', ...sections[sec]];
+            }
+
+            // Unmatched select fields (still ['']) → plain text input
+            for (const f of [...metadataFields, ...nodeFields, ...edgeFields]) {
+                if (f.type === 'select' && f.options && f.options.length === 1 && f.options[0] === '') {
+                    f.type = 'text'; delete f.options;
+                }
+            }
+
+            // Node subtype colors from sub-sections
+            subtypeColorMap = {};
+            for (const [k, codes] of Object.entries(sections)) {
+                if (!k.includes('::')) continue;
+                const palette = k.includes('machine') ? _coolPalette : _warmPalette;
+                codes.forEach((c, i) => { if (!subtypeColorMap[c]) subtypeColorMap[c] = palette[i % palette.length]; });
+            }
+
+            // Wire type colors
+            wireTypeColorMap = {};
+            const wireSec = bestMatch('Wire Type', 'Wire_Type');
+            if (wireSec) sections[wireSec].forEach((c, i) => { wireTypeColorMap[c] = _edgePalette[i % _edgePalette.length]; });
+
+            // Agent type → shape and badge class
+            agentTypeShapes = {}; agentTypeBadges = {};
+            const atSec = bestMatch('Agent Type', 'Agent_Type');
+            if (atSec) {
+                const shapes = ['ellipse', 'round-rectangle'];
+                const badges = ['badge-human', 'badge-machine'];
+                sections[atSec].forEach((t, i) => {
+                    agentTypeShapes[t] = shapes[i % shapes.length];
+                    agentTypeBadges[t] = badges[i % badges.length];
+                });
+            }
+
+            buildLegend(sections); // sections = the code sections part of the parsed codebook
+        }
+
+        function buildLegend(sections) {
+            const el = document.getElementById('node-legend');
+            if (!el) return;
+            let html = '<h3>Node Colors (Agent Subtype)</h3>';
+            for (const [k, codes] of Object.entries(sections)) {
+                if (!k.includes('::')) continue;
+                const label = k.split('::')[1].replace(/\b\w/g, c => c.toUpperCase());
+                html += `<div class="legend-supertype">${label}</div>`;
+                const palette = k.includes('machine') ? _coolPalette : _warmPalette;
+                codes.forEach((c, i) => {
+                    const color = palette[i % palette.length];
+                    html += `<div class="legend-item legend-subtype"><div class="legend-color" style="background:${color}"></div><span>${c}</span></div>`;
+                });
+            }
+            el.innerHTML = html;
+        }
+
+        function loadPDF(event) {
+            const file = event.target.files[0];
+            if (!file || file.type !== 'application/pdf') return;
+            const url = URL.createObjectURL(file);
+            const viewer = document.getElementById('pdf-viewer');
+            const placeholder = document.getElementById('pdf-placeholder');
+            viewer.src = url;
+            viewer.style.display = 'block';
+            placeholder.style.display = 'none';
+            switchTab('pdf');
+        }
+
+        function parseCSV(text) {
+            const lines = text.split('\n').filter(l => l.trim());
+            if (lines.length === 0) return { headers: [], rows: [] };
+            const headers = parseCSVLine(lines[0]);
+            const rows = [];
+            for (let i = 1; i < lines.length; i++) {
+                const vals = parseCSVLine(lines[i]);
+                if (vals.length === 0 || (vals.length === 1 && vals[0] === '')) continue;
+                const row = {};
+                headers.forEach((h, idx) => { row[h] = vals[idx] !== undefined ? vals[idx] : ''; });
+                rows.push(row);
+            }
+            return { headers, rows };
+        }
+
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const ch = line[i];
+                if (ch === '"') {
+                    if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+                    else inQuotes = !inQuotes;
+                } else if (ch === ',' && !inQuotes) {
+                    result.push(current); current = '';
+                } else {
+                    current += ch;
+                }
+            }
+            result.push(current);
+            return result;
+        }
+
+        function loadNodesCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const { headers, rows } = parseCSV(e.target.result);
+                // First col is the node id — rename to 'id' for Cytoscape
+                const renames = headers.length ? { [headers[0]]: 'id' } : {};
+                if (!nodeFields.length) nodeFields = buildFieldsFromHeaders(headers, rows, renames, null);
+                nodesData = rows.map(r => {
+                    const obj = {};
+                    headers.forEach(h => { obj[renames[h] || h] = r[h]; });
+                    if (r[headers[0]] && !DOI && r.DOI) { DOI = r.DOI; document.getElementById('doi-input').value = DOI; metadataData.DOI = DOI; }
+                    return obj;
+                });
+                if (lastCodebookSections) applyCodebookToFields(lastCodebookSections);
+                updateGraph();
+                markUnsaved();
+                alert(`Loaded ${nodesData.length} nodes.`);
+            };
+            reader.readAsText(file);
+        }
+
+        function loadEdgesCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const { headers, rows } = parseCSV(e.target.result);
+                // Cols 1 and 2 (after DOI) are source/target node references
+                const renames = {};
+                if (headers[0]) renames[headers[0]] = 'doi_skip'; // DOI col — skip from fields
+                if (headers[1]) renames[headers[1]] = 'source';
+                if (headers[2]) renames[headers[2]] = 'target';
+                const nodeSelectCols = new Set(['source', 'target']);
+                // Build fields from col 1 onward (skip DOI)
+                if (!edgeFields.length) edgeFields = buildFieldsFromHeaders(headers.slice(1), rows, renames, nodeSelectCols, false);
+                edgesData = rows.map(r => {
+                    const obj = {};
+                    headers.slice(1).forEach(h => { obj[renames[h] || h] = r[h] || ''; });
+                    return obj;
+                });
+                if (lastCodebookSections) applyCodebookToFields(lastCodebookSections);
+                updateGraph();
+                markUnsaved();
+                alert(`Loaded ${edgesData.length} edges.`);
+            };
+            reader.readAsText(file);
+        }
+
+        function loadMetadataCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const { headers, rows } = parseCSV(e.target.result);
+                if (rows.length > 0) {
+                    if (!metadataFields.length) metadataFields = buildFieldsFromHeaders(headers, rows, null, null);
+                    metadataData = rows[0];
+                    if (metadataData.DOI) { DOI = metadataData.DOI; document.getElementById('doi-input').value = DOI; }
+                    if (lastCodebookSections) applyCodebookToFields(lastCodebookSections);
+                    markUnsaved();
+                    alert('Metadata loaded.');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function loadPatternsCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const { rows } = parseCSV(e.target.result);
+                patternGroups = rows.map(r => ({
+                    pattern: r.Pattern || '',
+                    nodes: (r.Nodes || '').split(',').map(s => s.trim()).filter(Boolean),
+                    label: r.Label || r.Pattern || ''
+                }));
+                Object.keys(patternTypeVisible).forEach(k => delete patternTypeVisible[k]);
+                patternGroups.forEach(g => { patternTypeVisible[g.pattern] = true; });
+                buildPatternDropdown();
+                drawPatternOverlays();
+                markUnsaved();
+                alert(`Loaded ${patternGroups.length} pattern groups.`);
+            };
+            reader.readAsText(file);
+        }
+
+        // ── Field definitions (built dynamically from CSV headers) ─────────────────
+        let metadataFields = [];
+        let nodeFields = [];
+        let edgeFields = [];
+
+        // Derive field type from the header name and data values.
+        // renames: { csvHeader → fieldKey } for structural columns (id, source, target)
+        // nodeSelectCols: set of keys that reference node IDs (get node-select widget)
+        // idRow: true if the first column is a unique row identifier (readonly); false for edges
+        function buildFieldsFromHeaders(headers, rows, renames, nodeSelectCols, idRow = true) {
+            return headers.map((h, i) => {
+                const key = (renames && renames[h]) || h;
+                const label = key.replace(/_/g, ' ');
+                if (idRow && i === 0) return { key, label, type: 'text', readonly: true };
+                if (key.startsWith('Derived_')) return { key, label, type: 'readonly-text' };
+                if (key.endsWith('_Quote')) return { key, label, type: 'textarea' };
+                if (nodeSelectCols && nodeSelectCols.has(key)) return { key, label, type: 'node-select' };
+                const origH = (renames && Object.keys(renames).find(k => renames[k] === key)) || h;
+                const hasMulti = rows.some(r => (r[origH] || r[key] || '').includes(';'));
+                return { key, label, type: hasMulti ? 'multi-select' : 'select', options: hasMulti ? [] : [''] };
+            });
+        }
+
+        // ── Colors ─────────────────────────────────────────────────────────────────
+        function getNodeColor(agentType, agentSubtype) {
+            if (subtypeColorMap[agentSubtype]) return subtypeColorMap[agentSubtype];
+            const i = Object.keys(agentTypeShapes).indexOf(agentType);
+            return (i === 0 ? _warmPalette : _coolPalette)[0];
+        }
+
+        function getEdgeStyle(pattern, wireType) {
+            const isDashed = pattern ? 'dashed' : 'solid';
+            if (wireType) {
+                const firstType = wireType.split(';')[0].trim();
+                if (wireTypeColorMap[firstType]) return { lineStyle: isDashed, lineColor: wireTypeColorMap[firstType] };
+            }
+            return { lineStyle: isDashed, lineColor: isDashed === 'dashed' ? '#e74c3c' : '#666' };
+        }
+
+        // ── Graph building ─────────────────────────────────────────────────────────
+        function buildElements() {
+            const elements = [];
+            nodesData.forEach(node => {
+                elements.push({ data: {
+                    id: node.id,
+                    label: `${node.id}: ${node.Subtask || '?'}\n(${node.Agent_Subtype || '?'})`,
+                    ...node,
+                    color: getNodeColor(node.Agent_Type, node.Agent_Subtype),
+                    shape: agentTypeShapes[node.Agent_Type] || 'ellipse'
+                }});
+            });
+            edgesData.forEach((edge, i) => {
+                const wireTypes = edge.Wire_Type ? edge.Wire_Type.split(';').map(w => w.trim()).filter(Boolean) : [];
+                const condLabel = (edge.Pattern && edge.Condition) ? '[if ' + edge.Condition + ']' : '';
+                if (wireTypes.length > 1) {
+                    const isDashed = edge.Pattern ? 'dashed' : 'solid';
+                    wireTypes.forEach((wt, j) => {
+                        const color = wireTypeColorMap[wt] || '#666';
+                        elements.push({ data: { id: `e${i}_${j}`, source: edge.source, target: edge.target,
+                            label: wt + (j === 0 && condLabel ? ' ' + condLabel : ''), edgeIndex: i, ...edge,
+                            lineStyle: isDashed, lineColor: color }});
+                    });
+                } else {
+                    const style = getEdgeStyle(edge.Pattern, edge.Wire_Type);
+                    const wt = wireTypes[0] || '';
+                    elements.push({ data: { id: `e${i}`, source: edge.source, target: edge.target,
+                        label: wt + (condLabel ? ' ' + condLabel : ''), edgeIndex: i, ...edge, ...style }});
+                }
+            });
+            return elements;
+        }
+
+        const cy = cytoscape({
+            container: document.getElementById('cy'),
+            elements: [],
+            style: [
+                { selector: 'node', style: {
+                    'background-color': 'data(color)', 'label': 'data(label)', 'text-wrap': 'wrap',
+                    'text-valign': 'center', 'text-halign': 'center', 'font-size': '8px',
+                    'width': '90px', 'height': '45px', 'shape': 'data(shape)',
+                    'border-width': 2, 'border-color': '#999' }},
+                { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#4a90d9' }},
+                { selector: 'edge', style: {
+                    'width': 2, 'line-color': 'data(lineColor)', 'target-arrow-color': 'data(lineColor)',
+                    'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'line-style': 'data(lineStyle)',
+                    'label': 'data(label)', 'font-size': '7px', 'text-rotation': 0, 'color': '#333' }},
+                { selector: 'edge:selected', style: { 'width': 4 }}
+            ],
+            layout: { name: 'dagre', rankDir: 'TB', nodeSep: 25, rankSep: 40, padding: 15 }
+        });
+
+        function updateGraph() {
+            cy.elements().remove();
+            cy.add(buildElements());
+            cy.layout({ name: 'dagre', rankDir: 'TB', nodeSep: 25, rankSep: 40, padding: 15 }).run();
+            setTimeout(drawPatternOverlays, 50);
+        }
+
+        // ── Pattern overlays ───────────────────────────────────────────────────────
+        const patternColors = {
+            'Parallel':      { bg: 'rgba(76,175,80,0.08)',   border: '#4CAF50' },
+            'Iterative':     { bg: 'rgba(255,152,0,0.08)',   border: '#FF9800' },
+            'Hierarchical':  { bg: 'rgba(156,39,176,0.08)',  border: '#9C27B0' },
+            'Communicative': { bg: 'rgba(0,150,136,0.08)',   border: '#009688' },
+            'Conditional':   { bg: 'rgba(244,67,54,0.08)',   border: '#F44336' },
+            'Sequential':    { bg: 'rgba(158,158,158,0.08)', border: '#9E9E9E' }
+        };
+        const patternTypes = ['Sequential','Parallel','Conditional','Iterative','Hierarchical','Communicative'];
+
+        function drawPatternOverlays() {
+            document.querySelectorAll('.pattern-overlay, .pattern-label').forEach(el => el.remove());
+            if (patternGroups.length === 0) return;
+            const container = document.getElementById('graph-panel');
+            const cyRect = document.getElementById('cy').getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            const offsetX = cyRect.left - containerRect.left;
+            const offsetY = cyRect.top - containerRect.top;
+            patternGroups.forEach(function(group, i) {
+                if (!patternTypeVisible[group.pattern]) return;
+                const nodeEls = cy.nodes().filter(n => group.nodes.indexOf(n.id()) >= 0);
+                if (nodeEls.length === 0) return;
+                const bb = nodeEls.boundingBox();
+                const pan = cy.pan(); const zoom = cy.zoom(); const pad = 25;
+                const x = bb.x1 * zoom + pan.x - pad + offsetX;
+                const y = bb.y1 * zoom + pan.y - pad + offsetY;
+                const w = bb.w * zoom + 2 * pad;
+                const h = bb.h * zoom + 2 * pad;
+                const colors = patternColors[group.pattern] || patternColors['Sequential'];
+                const overlay = document.createElement('div');
+                overlay.className = 'pattern-overlay';
+                overlay.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${colors.bg};border:1.5px dashed ${colors.border};`;
+                const label = document.createElement('div');
+                label.className = 'pattern-label';
+                label.textContent = group.label || group.pattern;
+                label.style.cssText = `left:${x}px;top:${y - 16}px;color:${colors.border};background:white;border:1px solid ${colors.border};`;
+                (function(idx) { label.addEventListener('click', e => { e.stopPropagation(); showPatternDetails(idx); }); })(i);
+                container.appendChild(overlay);
+                container.appendChild(label);
+            });
+        }
+
+        function buildPatternDropdown() {
+            const dd = document.getElementById('pattern-dropdown');
+            dd.innerHTML = '';
+            const types = []; const seen = {};
+            patternGroups.forEach(g => { if (!seen[g.pattern]) { types.push(g.pattern); seen[g.pattern] = true; }});
+            const allOn = document.createElement('div'); allOn.className = 'pattern-dropdown-item'; allOn.textContent = 'Show all';
+            allOn.onclick = () => { types.forEach(t => patternTypeVisible[t] = true); buildPatternDropdown(); drawPatternOverlays(); };
+            dd.appendChild(allOn);
+            const allOff = document.createElement('div'); allOff.className = 'pattern-dropdown-item'; allOff.textContent = 'Hide all';
+            allOff.onclick = () => { types.forEach(t => patternTypeVisible[t] = false); buildPatternDropdown(); drawPatternOverlays(); };
+            dd.appendChild(allOff);
+            dd.appendChild(Object.assign(document.createElement('div'), { className: 'pattern-dropdown-sep' }));
+            types.forEach(t => {
+                const item = document.createElement('div'); item.className = 'pattern-dropdown-item';
+                const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!patternTypeVisible[t];
+                const colors = patternColors[t] || patternColors['Sequential'];
+                const swatch = document.createElement('span'); swatch.className = 'pattern-dropdown-swatch';
+                swatch.style.background = colors.bg; swatch.style.borderColor = colors.border;
+                const lbl = document.createElement('span'); lbl.textContent = t;
+                item.appendChild(cb); item.appendChild(swatch); item.appendChild(lbl);
+                item.onclick = e => { if (e.target !== cb) cb.checked = !cb.checked; patternTypeVisible[t] = cb.checked; drawPatternOverlays(); };
+                dd.appendChild(item);
+            });
+        }
+
+        function togglePatternDropdown(e) {
+            e.stopPropagation();
+            const dd = document.getElementById('pattern-dropdown');
+            const isOpen = dd.classList.contains('open');
+            dd.classList.toggle('open');
+            if (!isOpen) buildPatternDropdown();
+        }
+        document.addEventListener('click', e => {
+            const dd = document.getElementById('pattern-dropdown');
+            if (!dd.parentElement.contains(e.target)) dd.classList.remove('open');
+        });
+
+        // ── Editable field builder ─────────────────────────────────────────────────
+        function createEditableField(field, value, onChange) {
+            const fieldDiv = document.createElement('div');
+            fieldDiv.className = 'field';
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'field-label';
+            labelDiv.textContent = field.label;
+            fieldDiv.appendChild(labelDiv);
+
+            if (field.type === 'readonly-text') {
+                const roDiv = document.createElement('div');
+                roDiv.style.cssText = 'padding:5px 7px;background:#eee;border-radius:4px;font-size:12px;color:#555;min-height:28px;';
+                roDiv.textContent = value || '(auto-derived)';
+                fieldDiv.appendChild(roDiv);
+                return fieldDiv;
+            }
+
+            if (field.type === 'multi-select') {
+                const wrapper = document.createElement('div'); wrapper.className = 'multi-select-wrapper';
+                const chipBox = document.createElement('div'); chipBox.className = 'chip-container';
+                let currentValues = (value || '').split(';').map(s => s.trim()).filter(Boolean);
+                function renderMSChips() {
+                    chipBox.innerHTML = '';
+                    currentValues.forEach((val, vi) => {
+                        const chip = document.createElement('span'); chip.className = 'node-chip'; chip.textContent = val;
+                        const rm = document.createElement('span'); rm.className = 'chip-remove'; rm.textContent = '×';
+                        rm.onclick = () => { currentValues.splice(vi, 1); onChange(field.key, currentValues.join('; ')); renderMSChips(); renderMSDropdown(); markUnsaved(); };
+                        chip.appendChild(rm); chipBox.appendChild(chip);
+                    });
+                }
+                const msSelect = document.createElement('select'); msSelect.style.cssText = 'width:100%;padding:3px 7px;font-size:11px;margin-top:3px;';
+                function renderMSDropdown() {
+                    msSelect.innerHTML = '';
+                    const def = document.createElement('option'); def.value = ''; def.textContent = '-- Add --'; msSelect.appendChild(def);
+                    (field.options || []).forEach(opt => { if (!opt || currentValues.indexOf(opt) >= 0) return; const o = document.createElement('option'); o.value = opt; o.textContent = opt; msSelect.appendChild(o); });
+                }
+                msSelect.addEventListener('change', () => { if (msSelect.value) { currentValues.push(msSelect.value); onChange(field.key, currentValues.join('; ')); renderMSChips(); renderMSDropdown(); markUnsaved(); } });
+                renderMSChips(); renderMSDropdown();
+                const customRow = document.createElement('div'); customRow.style.cssText = 'display:flex;gap:3px;margin-top:3px;';
+                const customInput = document.createElement('input'); customInput.type = 'text'; customInput.placeholder = 'Custom value...';
+                customInput.style.cssText = 'flex:1;padding:3px 7px;font-size:11px;border:1px solid #ddd;border-radius:4px;';
+                const customBtn = document.createElement('button'); customBtn.textContent = '+';
+                customBtn.style.cssText = 'padding:3px 8px;font-size:11px;border:1px solid #ddd;border-radius:4px;background:#f0f0f0;cursor:pointer;';
+                customBtn.addEventListener('click', () => { const cv = customInput.value.trim(); if (cv && currentValues.indexOf(cv) < 0) { currentValues.push(cv); onChange(field.key, currentValues.join('; ')); renderMSChips(); renderMSDropdown(); markUnsaved(); customInput.value = ''; } });
+                customInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); customBtn.click(); }});
+                customRow.appendChild(customInput); customRow.appendChild(customBtn);
+                wrapper.appendChild(chipBox); wrapper.appendChild(msSelect); wrapper.appendChild(customRow);
+                fieldDiv.appendChild(wrapper);
+                return fieldDiv;
+            }
+
+            if (field.type === 'node-multi-select') {
+                const wrapper = document.createElement('div'); wrapper.className = 'multi-select-wrapper';
+                const chipBox = document.createElement('div'); chipBox.className = 'chip-container';
+                function renderChips() {
+                    chipBox.innerHTML = '';
+                    (value || []).forEach((nid, vi) => {
+                        const chip = document.createElement('span'); chip.className = 'node-chip'; chip.textContent = nid;
+                        const rm = document.createElement('span'); rm.className = 'chip-remove'; rm.textContent = '×';
+                        rm.onclick = () => { value.splice(vi, 1); onChange(field.key, value); renderChips(); renderDropdown(); markUnsaved(); };
+                        chip.appendChild(rm); chipBox.appendChild(chip);
+                    });
+                }
+                const addSelect = document.createElement('select'); addSelect.style.cssText = 'width:100%;padding:3px 7px;font-size:11px;margin-top:3px;';
+                function renderDropdown() {
+                    addSelect.innerHTML = '';
+                    const def = document.createElement('option'); def.value = ''; def.textContent = '-- Add node --'; addSelect.appendChild(def);
+                    const coveredNodes = new Set(); patternGroups.forEach(g => g.nodes.forEach(n => coveredNodes.add(n)));
+                    nodesData.forEach(n => { if ((value || []).indexOf(n.id) < 0) { const opt = document.createElement('option'); opt.value = n.id; opt.textContent = n.id + ': ' + (n.Subtask || '') + (coveredNodes.has(n.id) ? '' : ' [uncovered]'); addSelect.appendChild(opt); }});
+                }
+                addSelect.addEventListener('change', () => { if (addSelect.value) { value.push(addSelect.value); onChange(field.key, value); renderChips(); renderDropdown(); markUnsaved(); }});
+                renderChips(); renderDropdown();
+                wrapper.appendChild(chipBox); wrapper.appendChild(addSelect);
+                fieldDiv.appendChild(wrapper);
+                return fieldDiv;
+            }
+
+            let input;
+            if (field.type === 'node-select') {
+                input = document.createElement('select'); input.className = 'field-select';
+                nodesData.forEach(node => { const option = document.createElement('option'); option.value = node.id; option.textContent = `${node.id}: ${node.Subtask || ''}`; if (node.id === value) option.selected = true; input.appendChild(option); });
+            } else if (field.type === 'select') {
+                input = document.createElement('select'); input.className = 'field-select';
+                field.options.forEach(opt => { const option = document.createElement('option'); option.value = opt; option.textContent = opt || '(none)'; if (opt === value) option.selected = true; input.appendChild(option); });
+            } else if (field.type === 'textarea') {
+                input = document.createElement('textarea'); input.className = 'field-input'; input.value = value || ''; input.rows = 3;
+            } else {
+                input = document.createElement('input'); input.type = 'text'; input.className = 'field-input'; input.value = value || '';
+            }
+            if (field.readonly) { input.disabled = true; input.style.background = '#eee'; }
+            input.addEventListener('change', e => { onChange(field.key, e.target.value); markUnsaved(); });
+            input.setAttribute('data-field-key', field.key);
+            fieldDiv.appendChild(input);
+            return fieldDiv;
+        }
+
+        // ── Node / edge details ────────────────────────────────────────────────────
+        function showNodeDetails(node) {
+            const data = node.data();
+            const nodeIndex = nodesData.findIndex(n => n.id === data.id);
+            currentSelection = nodeIndex; currentSelectionType = 'node';
+            const placeholder = document.getElementById('placeholder');
+            const content = document.getElementById('details-content');
+            placeholder.style.display = 'none'; content.style.display = 'block';
+            const badgeClass = agentTypeBadges[data.Agent_Type] || 'badge-human';
+            content.innerHTML = `<h2>Node ${data.id}</h2><p style="margin-bottom:10px;"><span class="badge ${badgeClass}">${data.Agent_Type||''}</span><span class="badge" style="background:#f5f5f5;">${data.Agent_Subtype||''}</span></p>`;
+            nodeFields.forEach(field => {
+                const fieldEl = createEditableField(field, nodesData[nodeIndex][field.key], (key, value) => {
+                    nodesData[nodeIndex][key] = value;
+                    if (['Subtask','Agent_Type','Agent_Subtype'].includes(key)) updateGraph();
+                });
+                content.appendChild(fieldEl);
+            });
+            const btnRow = document.createElement('div'); btnRow.style.cssText = 'display:flex;gap:7px;margin-top:12px;';
+            const copyBtn = document.createElement('button');
+            copyBtn.style.cssText = 'flex:1;background:#4a90d9;color:white;border:none;padding:7px 12px;border-radius:5px;cursor:pointer;font-size:11px;';
+            copyBtn.textContent = 'Copy Node'; copyBtn.onclick = () => copyNode(nodeIndex);
+            const deleteBtn = document.createElement('button'); deleteBtn.className = 'delete-btn';
+            deleteBtn.style.cssText += ';flex:1;margin-top:0;'; deleteBtn.textContent = 'Delete Node';
+            deleteBtn.onclick = () => deleteNode(nodeIndex);
+            btnRow.appendChild(copyBtn); btnRow.appendChild(deleteBtn); content.appendChild(btnRow);
+        }
+
+        function showEdgeDetails(edge) {
+            const data = edge.data();
+            const edgeIndex = data.edgeIndex;
+            currentSelection = edgeIndex; currentSelectionType = 'edge';
+            const placeholder = document.getElementById('placeholder');
+            const content = document.getElementById('details-content');
+            placeholder.style.display = 'none'; content.style.display = 'block';
+            const badgeClass = `badge-${(data.Pattern||'').toLowerCase().replace('/', '-')}`;
+            content.innerHTML = `<h2>Edge ${data.source} → ${data.target}</h2><p style="margin-bottom:10px;"><span class="badge ${badgeClass}">${data.Pattern||'—'}</span><span class="badge" style="background:#f5f5f5;">${data.Cardinality||''}</span></p>`;
+            edgeFields.forEach(field => {
+                const fieldEl = createEditableField(field, edgesData[edgeIndex][field.key], (key, value) => {
+                    edgesData[edgeIndex][key] = value;
+                    if (['source','target','Pattern','Wire_Type'].includes(key)) updateGraph();
+                });
+                content.appendChild(fieldEl);
+            });
+            const deleteBtn = document.createElement('button'); deleteBtn.className = 'delete-btn';
+            deleteBtn.textContent = 'Delete Edge'; deleteBtn.onclick = () => deleteEdge(edgeIndex);
+            content.appendChild(deleteBtn);
+        }
+
+        function showMetadataDetails() {
+            currentSelection = null; currentSelectionType = 'metadata';
+            const placeholder = document.getElementById('placeholder');
+            const content = document.getElementById('details-content');
+            placeholder.style.display = 'none'; content.style.display = 'block';
+            content.innerHTML = `<h2>Workflow Metadata</h2><p style="margin-bottom:10px;"><span class="badge" style="background:#3498db;color:white;">Metadata</span></p>`;
+            metadataData.DOI = metadataData.DOI || DOI;
+            metadataFields.forEach(field => {
+                const fieldEl = createEditableField(field, metadataData[field.key] || '', (key, value) => { metadataData[key] = value; markUnsaved(); });
+                content.appendChild(fieldEl);
+            });
+        }
+
+        function showPatternDetails(index) {
+            currentSelection = index; currentSelectionType = 'pattern'; currentGroup = patternGroups[index];
+            const placeholder = document.getElementById('placeholder');
+            const content = document.getElementById('details-content');
+            placeholder.style.display = 'none'; content.style.display = 'block';
+            const group = patternGroups[index];
+            const colors = patternColors[group.pattern] || patternColors['Sequential'];
+            content.innerHTML = `<h2>Pattern Group #${index + 1}</h2><p style="margin-bottom:10px;"><span class="badge" style="background:${colors.bg};color:${colors.border};border:1px solid ${colors.border};">${group.pattern}</span></p>`;
+            content.appendChild(createEditableField({ key:'pattern', label:'Pattern Type', type:'select', options: patternTypes }, group.pattern, (key, val) => { group.pattern = val; if (!patternTypeVisible.hasOwnProperty(val)) patternTypeVisible[val] = true; drawPatternOverlays(); buildPatternDropdown(); }));
+            content.appendChild(createEditableField({ key:'label', label:'Label', type:'text' }, group.label || '', (key, val) => { group.label = val; drawPatternOverlays(); }));
+            content.appendChild(createEditableField({ key:'nodes', label:'Nodes', type:'node-multi-select' }, group.nodes, (key, val) => { group.nodes = val; drawPatternOverlays(); }));
+            const coveredNodes = new Set(); patternGroups.forEach(g => g.nodes.forEach(n => coveredNodes.add(n)));
+            const uncovered = nodesData.filter(n => !coveredNodes.has(n.id));
+            if (uncovered.length > 0) {
+                const uncovDiv = document.createElement('div');
+                uncovDiv.style.cssText = 'margin-top:8px;padding:7px;background:#fff3e0;border-radius:4px;font-size:10px;color:#e65100;';
+                uncovDiv.textContent = 'Uncovered nodes: ' + uncovered.map(n => n.id).join(', ');
+                content.appendChild(uncovDiv);
+            }
+            const deleteBtn = document.createElement('button'); deleteBtn.className = 'delete-btn';
+            deleteBtn.textContent = 'Delete Pattern Group'; deleteBtn.onclick = () => deletePattern(index);
+            content.appendChild(deleteBtn);
+        }
+
+        // ── CRUD ───────────────────────────────────────────────────────────────────
+        function deleteNode(index) {
+            if (!confirm('Delete this node and connected edges?')) return;
+            const nodeId = nodesData[index].id;
+            nodesData.splice(index, 1);
+            for (let i = edgesData.length - 1; i >= 0; i--) { if (edgesData[i].source === nodeId || edgesData[i].target === nodeId) edgesData.splice(i, 1); }
+            for (let i = patternGroups.length - 1; i >= 0; i--) { const idx = patternGroups[i].nodes.indexOf(nodeId); if (idx >= 0) patternGroups[i].nodes.splice(idx, 1); if (patternGroups[i].nodes.length === 0) patternGroups.splice(i, 1); }
+            buildPatternDropdown(); updateGraph(); markUnsaved();
+            document.getElementById('placeholder').style.display = 'block';
+            document.getElementById('details-content').style.display = 'none';
+        }
+
+        function copyNode(index) {
+            const src = nodesData[index];
+            const staged = isStagedWorkflow();
+            let stageNum = null;
+            if (staged) { const m = src.id.match(/^S(\d+)_([A-Z])$/); if (m) stageNum = parseInt(m[1]); }
+            const newId = getInsertionId(src.id, stageNum);
+            const insertedLetter = getNodeIdLetter(newId);
+            shiftNodesFrom(insertedLetter, stageNum);
+            const newNode = Object.assign({}, src); newNode.id = newId;
+            const srcIndex = nodesData.findIndex(n => n.id === src.id || n.id === src.id);
+            if (srcIndex >= 0) nodesData.splice(srcIndex + 1, 0, newNode); else nodesData.push(newNode);
+            updateGraph(); markUnsaved();
+            const cyNode = cy.getElementById(newId);
+            if (cyNode.length) showNodeDetails(cyNode);
+        }
+
+        function deleteEdge(index) {
+            if (!confirm('Delete this edge?')) return;
+            edgesData.splice(index, 1); updateGraph(); markUnsaved();
+            document.getElementById('placeholder').style.display = 'block';
+            document.getElementById('details-content').style.display = 'none';
+        }
+
+        function deletePattern(index) {
+            if (!confirm('Delete this pattern group?')) return;
+            patternGroups.splice(index, 1); buildPatternDropdown(); drawPatternOverlays(); markUnsaved();
+            document.getElementById('placeholder').style.display = 'block';
+            document.getElementById('details-content').style.display = 'none';
+            if (patternGroups.length === 0) document.getElementById('pattern-toggle').style.opacity = '0.5';
+        }
+
+        // ── Node ID helpers ────────────────────────────────────────────────────────
+        function isStagedWorkflow() { return nodesData.some(n => /^S\d+_[A-Z]$/.test(n.id)); }
+        function getStagesFromData() { const m = {}; nodesData.forEach(n => { const r = n.id.match(/^S(\d+)_([A-Z])$/); if (r) { const s = parseInt(r[1]); if (!m[s]) m[s] = []; m[s].push(r[2]); }}); return m; }
+        function getNodesForStage(s) { return nodesData.filter(n => new RegExp('^S' + s + '_[A-Z]$').test(n.id)); }
+        function getNodeIdLetter(id) { const s = /^S\d+_([A-Z])$/.exec(id); if (s) return s[1]; const p = /^([A-Z])/.exec(id); if (p) return p[1]; return null; }
+        function buildNodeId(letter, stageNum) { return stageNum != null ? 'S' + stageNum + '_' + letter : letter; }
+        function renameNodeId(oldId, newId) {
+            const node = nodesData.find(n => n.id === oldId); if (node) node.id = newId;
+            edgesData.forEach(e => { if (e.source === oldId) e.source = newId; if (e.target === oldId) e.target = newId; });
+            patternGroups.forEach(g => { const idx = g.nodes.indexOf(oldId); if (idx >= 0) g.nodes[idx] = newId; });
+        }
+        function getInsertionId(afterNodeId, stageNum) {
+            if (afterNodeId === '__start__') return buildNodeId('A', stageNum);
+            const letter = getNodeIdLetter(afterNodeId);
+            if (letter) return buildNodeId(String.fromCharCode(letter.charCodeAt(0) + 1), stageNum);
+            return buildNodeId('A', stageNum);
+        }
+        function shiftNodesFrom(insertedLetter, stageNum) {
+            const staged = isStagedWorkflow();
+            const relevant = staged ? getNodesForStage(stageNum) : nodesData.slice();
+            const toShift = relevant.filter(n => { const l = getNodeIdLetter(n.id); return l && l.charCodeAt(0) >= insertedLetter.charCodeAt(0); });
+            toShift.sort((a, b) => getNodeIdLetter(b.id).charCodeAt(0) - getNodeIdLetter(a.id).charCodeAt(0));
+            toShift.forEach(n => { const oldL = getNodeIdLetter(n.id); const newL = String.fromCharCode(oldL.charCodeAt(0) + 1); renameNodeId(n.id, buildNodeId(newL, stageNum)); });
+        }
+
+        // ── Add node/edge forms ────────────────────────────────────────────────────
+        function cancelCreateForm() {
+            document.getElementById('placeholder').style.display = 'block';
+            document.getElementById('details-content').style.display = 'none';
+            currentSelection = null; currentSelectionType = null;
+        }
+
+        function populateInsertAfterDropdown(selectEl, stageNum) {
+            selectEl.innerHTML = '';
+            const startOpt = document.createElement('option'); startOpt.value = '__start__'; startOpt.textContent = '(Beginning)'; selectEl.appendChild(startOpt);
+            const staged = isStagedWorkflow();
+            const relevantNodes = staged && stageNum != null ? getNodesForStage(stageNum) : nodesData;
+            const sorted = relevantNodes.slice().sort((a, b) => (getNodeIdLetter(a.id)||'').charCodeAt(0) - (getNodeIdLetter(b.id)||'').charCodeAt(0));
+            sorted.forEach(n => { const opt = document.createElement('option'); opt.value = n.id; opt.textContent = n.id + ': ' + (n.Subtask || ''); selectEl.appendChild(opt); });
+            if (sorted.length > 0) selectEl.value = sorted[sorted.length - 1].id;
+        }
+
+        function updateAutoIdPreview() {
+            const insertSelect = document.getElementById('insert-after-select');
+            const idPreview = document.getElementById('auto-id-preview');
+            if (!insertSelect || !idPreview) return;
+            const staged = isStagedWorkflow(); let stageNum = null;
+            if (staged) { const ss = document.getElementById('new-node-stage'); if (ss) { if (ss.value === 'new') { const sm = getStagesFromData(); const sn = Object.keys(sm).map(Number).sort((a,b)=>a-b); stageNum = sn.length > 0 ? Math.max(...sn) + 1 : 1; } else stageNum = parseInt(ss.value); }}
+            idPreview.textContent = 'New node will be: ' + getInsertionId(insertSelect.value, stageNum);
+        }
+
+        function showAddNodeForm() {
+            currentSelection = null; currentSelectionType = 'create-node';
+            const placeholder = document.getElementById('placeholder');
+            const content = document.getElementById('details-content');
+            placeholder.style.display = 'none'; content.style.display = 'block';
+            content.innerHTML = '<h2>Add New Node</h2><p style="margin-bottom:10px;"><span class="badge" style="background:#8e44ad;color:white;">New Node</span></p>';
+            const staged = isStagedWorkflow(); let currentStageNum = null;
+            if (staged) {
+                const stageMap = getStagesFromData();
+                const stageNums = Object.keys(stageMap).map(Number).sort((a,b)=>a-b);
+                const stageDiv = document.createElement('div'); stageDiv.className = 'stage-selector';
+                const stageLabel = document.createElement('div'); stageLabel.className = 'field-label'; stageLabel.textContent = 'Stage'; stageDiv.appendChild(stageLabel);
+                const stageSelect = document.createElement('select'); stageSelect.className = 'field-select'; stageSelect.id = 'new-node-stage';
+                stageNums.forEach(s => { const opt = document.createElement('option'); opt.value = s; opt.textContent = 'S' + s + ' (' + stageMap[s].length + ' nodes)'; stageSelect.appendChild(opt); });
+                const newOpt = document.createElement('option'); newOpt.value = 'new'; newOpt.textContent = '+ New Stage (S' + (stageNums.length > 0 ? Math.max(...stageNums) + 1 : 1) + ')'; stageSelect.appendChild(newOpt);
+                if (stageNums.length > 0) { stageSelect.value = stageNums[stageNums.length - 1]; currentStageNum = stageNums[stageNums.length - 1]; }
+                stageSelect.addEventListener('change', () => {
+                    const insertSelect = document.getElementById('insert-after-select');
+                    if (insertSelect) {
+                        if (stageSelect.value === 'new') { insertSelect.innerHTML = ''; const so = document.createElement('option'); so.value = '__start__'; so.textContent = '(Beginning - new stage)'; insertSelect.appendChild(so); }
+                        else populateInsertAfterDropdown(insertSelect, parseInt(stageSelect.value));
+                    }
+                    updateAutoIdPreview();
+                });
+                stageDiv.appendChild(stageSelect); content.appendChild(stageDiv);
+            }
+            const insertDiv = document.createElement('div'); insertDiv.className = 'insert-position';
+            const insertLabel = document.createElement('div'); insertLabel.className = 'field-label'; insertLabel.textContent = 'Insert After'; insertDiv.appendChild(insertLabel);
+            const insertSelect = document.createElement('select'); insertSelect.className = 'field-select'; insertSelect.id = 'insert-after-select';
+            populateInsertAfterDropdown(insertSelect, currentStageNum); insertSelect.addEventListener('change', updateAutoIdPreview); insertDiv.appendChild(insertSelect);
+            const idPreview = document.createElement('div'); idPreview.id = 'auto-id-preview'; idPreview.style.cssText = 'margin-top:5px;font-size:11px;font-weight:600;color:#8e44ad;';
+            insertDiv.appendChild(idPreview); content.appendChild(insertDiv);
+            nodeFields.forEach(field => { if (field.key === 'id') return; content.appendChild(createEditableField(field, '', () => {})); });
+            const btnDiv = document.createElement('div'); btnDiv.className = 'create-form-buttons';
+            btnDiv.innerHTML = '<button class="cancel-btn" onclick="cancelCreateForm()">Cancel</button><button class="save-btn" onclick="addNewNode()">Create Node</button>';
+            content.appendChild(btnDiv); updateAutoIdPreview();
+        }
+
+        function showAddEdgeForm() {
+            currentSelection = null; currentSelectionType = 'create-edge'; newEdgeFormData = {};
+            const placeholder = document.getElementById('placeholder');
+            const content = document.getElementById('details-content');
+            placeholder.style.display = 'none'; content.style.display = 'block';
+            content.innerHTML = '<h2>Add New Edge</h2><p style="margin-bottom:10px;"><span class="badge" style="background:#8e44ad;color:white;">New Edge</span></p>';
+            // If no edges CSV has been loaded yet, bootstrap source + target node-select fields
+            const fieldsToRender = edgeFields.length
+                ? edgeFields
+                : [{ key: 'source', label: 'From Node', type: 'node-select' },
+                   { key: 'target', label: 'To Node', type: 'node-select' }];
+            fieldsToRender.forEach(field => { content.appendChild(createEditableField(field, '', (key, value) => { newEdgeFormData[key] = value; })); });
+            const btnDiv = document.createElement('div'); btnDiv.className = 'create-form-buttons';
+            btnDiv.innerHTML = '<button class="cancel-btn" onclick="cancelCreateForm()">Cancel</button><button class="save-btn" onclick="addNewEdge()">Create Edge</button>';
+            content.appendChild(btnDiv);
+        }
+
+        function showAddPatternForm() {
+            currentSelection = null; currentSelectionType = 'create-pattern';
+            const placeholder = document.getElementById('placeholder');
+            const content = document.getElementById('details-content');
+            placeholder.style.display = 'none'; content.style.display = 'block';
+            content.innerHTML = '<h2>Add New Pattern</h2><p style="margin-bottom:10px;"><span class="badge" style="background:#8e44ad;color:white;">New Pattern</span></p>';
+            const newNodes = [];
+            content.appendChild(createEditableField({ key:'pattern', label:'Pattern Type', type:'select', options: patternTypes }, 'Sequential', () => {}));
+            content.appendChild(createEditableField({ key:'label', label:'Label (optional)', type:'text' }, '', () => {}));
+            content.appendChild(createEditableField({ key:'nodes', label:'Nodes', type:'node-multi-select' }, newNodes, () => {}));
+            const btnDiv = document.createElement('div'); btnDiv.className = 'create-form-buttons';
+            btnDiv.innerHTML = '<button class="cancel-btn" onclick="cancelCreateForm()">Cancel</button><button class="save-btn" onclick="addNewPattern()">Create Pattern</button>';
+            content.appendChild(btnDiv);
+        }
+
+        function addNewNode() {
+            const content = document.getElementById('details-content');
+            const insertSelect = document.getElementById('insert-after-select');
+            const afterNodeId = insertSelect ? insertSelect.value : '__end__';
+            const staged = isStagedWorkflow(); let stageNum = null;
+            if (staged) { const ss = document.getElementById('new-node-stage'); if (ss) { if (ss.value === 'new') { const sm = getStagesFromData(); const sn = Object.keys(sm).map(Number).sort((a,b)=>a-b); stageNum = sn.length > 0 ? Math.max(...sn) + 1 : 1; } else stageNum = parseInt(ss.value); }}
+            const newId = getInsertionId(afterNodeId, stageNum);
+            const insertedLetter = getNodeIdLetter(newId);
+            shiftNodesFrom(insertedLetter, stageNum);
+            const newNode = { id: newId };
+            nodeFields.forEach(field => { if (field.key === 'id') return; const input = content.querySelector('[data-field-key="' + field.key + '"]'); if (input) newNode[field.key] = input.value; });
+            if (afterNodeId === '__start__') { nodesData.unshift(newNode); }
+            else {
+                const afterIndex = nodesData.findIndex(n => { const l = getNodeIdLetter(n.id); return l && l.charCodeAt(0) === insertedLetter.charCodeAt(0) + 1 && (stageNum === null || n.id.startsWith('S' + stageNum + '_')); });
+                if (afterIndex >= 0) nodesData.splice(afterIndex, 0, newNode); else nodesData.push(newNode);
+            }
+            updateGraph(); markUnsaved(); cancelCreateForm();
+        }
+
+        function addNewEdge() {
+            const content = document.getElementById('details-content');
+            const newEdge = {};
+            edgeFields.forEach(field => { if (field.key in newEdgeFormData) { newEdge[field.key] = newEdgeFormData[field.key]; } else { const input = content.querySelector('[data-field-key="' + field.key + '"]'); if (input) newEdge[field.key] = input.value; }});
+            if (!newEdge.source || !newEdge.target) { alert('Please select source and target nodes'); return; }
+            if (newEdge.source === newEdge.target) { alert('Source and target cannot be the same'); return; }
+            edgesData.push(newEdge); updateGraph(); markUnsaved(); cancelCreateForm();
+        }
+
+        function addNewPattern() {
+            const content = document.getElementById('details-content');
+            const typeSelect = content.querySelector('[data-field-key="pattern"]');
+            const labelInput = content.querySelector('[data-field-key="label"]');
+            const patType = typeSelect ? typeSelect.value : 'Sequential';
+            const patLabel = labelInput ? labelInput.value : '';
+            const chips = content.querySelectorAll('.node-chip');
+            const selectedNodes = [];
+            chips.forEach(chip => { const text = chip.textContent.replace('×', '').trim(); if (text) selectedNodes.push(text); });
+            if (selectedNodes.length === 0) { alert('Please add at least one node'); return; }
+            patternGroups.push({ pattern: patType, nodes: selectedNodes, label: patLabel || patType });
+            if (!patternTypeVisible.hasOwnProperty(patType)) patternTypeVisible[patType] = true;
+            buildPatternDropdown(); drawPatternOverlays(); markUnsaved();
+            document.getElementById('pattern-toggle').style.opacity = '1';
+            cancelCreateForm();
+        }
+
+        // ── Export ─────────────────────────────────────────────────────────────────
+        function escapeCSV(value) {
+            if (value === undefined || value === null) return '';
+            const str = String(value);
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) return '"' + str.replace(/"/g, '""') + '"';
+            return str;
+        }
+
+        function getPrefix() { return (DOI || 'annotation').replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_{2,}/g, '_').toLowerCase(); }
+
+        function exportMetadataCSV() {
+            const keys = metadataFields.map(f => f.key);
+            let csv = keys.join(',') + '\n';
+            csv += keys.map(k => escapeCSV(metadataData[k] || '')).join(',') + '\n';
+            downloadCSV(csv, getPrefix() + '_metadata.csv'); markSaved();
+        }
+
+        function exportNodesCSV() {
+            const idField = nodeFields.find(f => f.readonly);
+            const keys = ['DOI', ...nodeFields.map(f => f.key === (idField && idField.key) ? 'Node_ID' : f.key)];
+            let csv = keys.join(',') + '\n';
+            nodesData.forEach(node => {
+                const row = keys.map(k => escapeCSV(k === 'DOI' ? DOI : k === 'Node_ID' ? node[idField.key] : node[k] || ''));
+                csv += row.join(',') + '\n';
+            });
+            downloadCSV(csv, getPrefix() + '_nodes.csv'); markSaved();
+        }
+
+        function exportEdgesCSV() {
+            const srcField = edgeFields.find(f => f.type === 'node-select');
+            const tgtField = edgeFields.filter(f => f.type === 'node-select')[1];
+            const keys = ['DOI', ...(edgeFields.map(f => {
+                if (f.key === (srcField && srcField.key)) return 'From';
+                if (f.key === (tgtField && tgtField.key)) return 'To';
+                return f.key;
+            }))];
+            let csv = keys.join(',') + '\n';
+            edgesData.forEach(edge => {
+                const row = keys.map(k => escapeCSV(k === 'DOI' ? DOI : k === 'From' ? edge[srcField.key] : k === 'To' ? edge[tgtField.key] : edge[k] || ''));
+                csv += row.join(',') + '\n';
+            });
+            downloadCSV(csv, getPrefix() + '_edges.csv'); markSaved();
+        }
+
+        function exportPatternsCSV() {
+            let csv = 'Pattern,Nodes,Label\n';
+            patternGroups.forEach(g => { csv += [escapeCSV(g.pattern), escapeCSV(g.nodes.join(',')), escapeCSV(g.label || '')].join(',') + '\n'; });
+            downloadCSV(csv, getPrefix() + '_patterns.csv');
+        }
+
+        function downloadCSV(content, filename) {
+            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob); link.download = filename; link.click();
+        }
+
+        function replaceSection(html, startMarker, endMarker, newContent) {
+            const si = html.indexOf(startMarker); if (si < 0) return html;
+            const ei = html.indexOf(endMarker, si + startMarker.length); if (ei < 0) return html;
+            return html.substring(0, si) + newContent + html.substring(ei + endMarker.length);
+        }
+
+        function exportHTML() {
+            document.querySelectorAll('.pattern-overlay, .pattern-label').forEach(el => el.remove());
+            let html = document.documentElement.outerHTML;
+            drawPatternOverlays();
+            // Clean Cytoscape canvases
+            const cyStart = html.indexOf('<div id="cy"');
+            if (cyStart >= 0) {
+                let depth = 0;
+                for (let ci = cyStart; ci < html.length; ci++) {
+                    if (html.substring(ci, ci+4) === '<div') depth++;
+                    if (html.substring(ci, ci+6) === '</div>') { depth--; if (depth === 0) { html = html.substring(0, cyStart) + '<div id="cy"></div>' + html.substring(ci + 6); break; }}
+                }
+            }
+            // Serialize state into data vars
+            const nodesJS = JSON.stringify(nodesData, null, 8);
+            const edgesJS = JSON.stringify(edgesData, null, 8);
+            const metaJS = JSON.stringify(metadataData, null, 8);
+            const patternsJS = JSON.stringify(patternGroups, null, 8);
+            const doiVal = JSON.stringify(DOI);
+            html = replaceSection(html, 'let DOI = ', ';', 'let DOI = ' + doiVal);
+            html = replaceSection(html, 'let nodesData = ', ';', 'let nodesData = ' + nodesJS);
+            html = replaceSection(html, 'let edgesData = ', ';', 'let edgesData = ' + edgesJS);
+            html = replaceSection(html, 'let metadataData = ', ';', 'let metadataData = ' + metaJS);
+            html = replaceSection(html, 'let patternGroups = ', ';', 'let patternGroups = ' + patternsJS);
+            // Restore DOI input value
+            html = html.replace('id="doi-input" placeholder', `id="doi-input" value=${JSON.stringify(DOI)} placeholder`);
+            html = '<!DOCTYPE html>\n' + html;
+            const blob = new Blob([html], { type: 'text/html;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob); link.download = getPrefix() + '_annotation.html'; link.click();
+            markSaved();
+        }
+
+        // ── Pattern derivation ─────────────────────────────────────────────────────
+        function derivePatterns() {
+            const results = []; const used = new Set();
+            const outEdges = {}; const inEdges = {};
+            nodesData.forEach(n => { outEdges[n.id] = []; inEdges[n.id] = []; });
+            edgesData.forEach((e, i) => {
+                if (outEdges[e.source]) outEdges[e.source].push({ target: e.target, Wire_Type: e.Wire_Type||'', Condition: e.Condition||'', Pattern: e.Pattern||'', idx: i });
+                if (inEdges[e.target]) inEdges[e.target].push({ source: e.source, Wire_Type: e.Wire_Type||'', Condition: e.Condition||'', Pattern: e.Pattern||'', idx: i });
+            });
+            // Communicative — bidirectional edge pair between two nodes
+            nodesData.forEach(nA => { (outEdges[nA.id]||[]).forEach(eAB => { if (used.has(eAB.idx)) return; (outEdges[eAB.target]||[]).forEach(eBA => { if (used.has(eBA.idx) || eBA.target !== nA.id) return; results.push({ pattern:'Communicative', nodes:[nA.id, eAB.target], label:'Communicative' }); used.add(eAB.idx); used.add(eBA.idx); }); }); });
+            // Hierarchical — A→B then B→A (non-cycle back-edge not caught above)
+            edgesData.forEach((e, i) => { if (used.has(i)) return; (outEdges[e.target]||[]).forEach(ret => { if (used.has(ret.idx) || ret.target !== e.source) return; results.push({ pattern:'Hierarchical', nodes:[e.source, e.target], label:'Hierarchical' }); used.add(i); used.add(ret.idx); }); });
+            // Conditional
+            nodesData.forEach(n => { const outs = (outEdges[n.id]||[]).filter(e => !used.has(e.idx)); const condEdges = outs.filter(e => (e.Condition && e.Condition.trim()) || (e.Pattern && e.Pattern.trim())); if (condEdges.length >= 2) { const nodes = [n.id]; condEdges.forEach(e => { if (!nodes.includes(e.target)) nodes.push(e.target); used.add(e.idx); }); results.push({ pattern:'Conditional', nodes, label:'Conditional' }); }});
+            // Iterative — DFS
+            const visited = {}; const inStack = {}; const parent = {};
+            function dfsCycle(nodeId) { visited[nodeId] = true; inStack[nodeId] = true; (outEdges[nodeId]||[]).forEach(e => { if (used.has(e.idx)) return; if (!visited[e.target]) { parent[e.target] = { from: nodeId, idx: e.idx }; dfsCycle(e.target); } else if (inStack[e.target]) { const cycleNodes = [e.target]; const cycleEdges = [e.idx]; let cur = nodeId; while (cur !== e.target) { cycleNodes.push(cur); if (parent[cur]) cycleEdges.push(parent[cur].idx); cur = parent[cur] ? parent[cur].from : e.target; } cycleNodes.reverse(); if (!cycleEdges.some(ci => used.has(ci))) { cycleEdges.forEach(ci => used.add(ci)); results.push({ pattern:'Iterative', nodes: cycleNodes, label:'Iterative' }); }}}); inStack[nodeId] = false; }
+            nodesData.forEach(n => { if (!visited[n.id]) dfsCycle(n.id); });
+            // Parallel — fork node with 2+ unconditional outgoing edges
+            nodesData.forEach(n => { const outs = (outEdges[n.id]||[]).filter(e => !used.has(e.idx) && !e.Pattern); if (outs.length < 2) return; const nodes = [n.id]; outs.forEach(e => { if (!nodes.includes(e.target)) nodes.push(e.target); used.add(e.idx); }); results.push({ pattern:'Parallel', nodes, label:'Parallel' }); });
+            // Sequential
+            const unusedEdges = {}; edgesData.forEach((e, i) => { if (!used.has(i)) { if (!unusedEdges[e.source]) unusedEdges[e.source] = []; unusedEdges[e.source].push({ target: e.target, idx: i }); }});
+            const unusedInCount = {}; nodesData.forEach(n => { unusedInCount[n.id] = 0; }); edgesData.forEach((e, i) => { if (!used.has(i) && unusedInCount.hasOwnProperty(e.target)) unusedInCount[e.target]++; });
+            const seqVisited = {};
+            nodesData.forEach(n => { if (seqVisited[n.id] || unusedInCount[n.id] > 0) return; const chain = [n.id]; seqVisited[n.id] = true; let cur = n.id; while (true) { const outs = (unusedEdges[cur]||[]).filter(ue => !used.has(ue.idx)); if (outs.length !== 1) break; const next = outs[0].target; let nextInCount = 0; edgesData.forEach((e, i) => { if (!used.has(i) && e.target === next) nextInCount++; }); if (nextInCount !== 1) break; used.add(outs[0].idx); chain.push(next); seqVisited[next] = true; cur = next; } if (chain.length >= 2) results.push({ pattern:'Sequential', nodes: chain, label:'Sequential' }); });
+            return results;
+        }
+
+        function updateDerivedQualityControl() {
+            const qc = [];
+            patternGroups.forEach(g => { if (g.pattern === 'Parallel') { const subtasks = g.nodes.map(nid => { const nd = nodesData.find(n => n.id === nid); return nd ? nd.Subtask : ''; }).filter(Boolean); const seen = {}; if (subtasks.some(s => { if (seen[s]) return true; seen[s] = true; return false; }) && !qc.includes('Redundancy')) qc.push('Redundancy'); } if (g.pattern === 'Iterative' && !qc.includes('Iterative improvement')) qc.push('Iterative improvement'); if (g.pattern === 'Hierarchical' && !qc.includes('Multilevel review')) qc.push('Multilevel review'); });
+            // Result aggregation — node with 2+ incoming edges (fan-in)
+            const inCount = {}; nodesData.forEach(n => { inCount[n.id] = 0; }); edgesData.forEach(e => { if (inCount.hasOwnProperty(e.target)) inCount[e.target]++; });
+            if (nodesData.some(n => inCount[n.id] >= 2) && !qc.includes('Result aggregation')) qc.push('Result aggregation');
+            metadataData.Derived_Quality_Control = qc.join('; ');
+        }
+
+        function runDerivePatterns() {
+            patternGroups = derivePatterns();
+            Object.keys(patternTypeVisible).forEach(k => delete patternTypeVisible[k]);
+            patternGroups.forEach(g => { patternTypeVisible[g.pattern] = true; });
+            buildPatternDropdown(); drawPatternOverlays(); markUnsaved();
+            document.getElementById('pattern-toggle').style.opacity = patternGroups.length === 0 ? '0.5' : '1';
+            updateDerivedQualityControl();
+        }
+
+        // ── Resizable panels ───────────────────────────────────────────────────────
+        function makeResizable(resizerId, leftPanelId, rightPanelId) {
+            const resizer = document.getElementById(resizerId);
+            let isResizing = false, startX = 0, startLeft = 0, startRight = 0;
+            resizer.addEventListener('mousedown', e => {
+                isResizing = true; startX = e.clientX;
+                const container = document.querySelector('.main-container');
+                const totalW = container.offsetWidth;
+                startLeft = document.getElementById(leftPanelId).offsetWidth / totalW * 100;
+                startRight = document.getElementById(rightPanelId).offsetWidth / totalW * 100;
+                document.body.style.cursor = 'col-resize';
+                e.preventDefault();
+            });
+            document.addEventListener('mousemove', e => {
+                if (!isResizing) return;
+                const container = document.querySelector('.main-container');
+                const totalW = container.offsetWidth;
+                const dx = (e.clientX - startX) / totalW * 100;
+                const newLeft = Math.max(15, startLeft + dx);
+                const newRight = Math.max(15, startRight - dx);
+                document.getElementById(leftPanelId).style.width = newLeft + '%';
+                document.getElementById(rightPanelId).style.width = newRight + '%';
+                drawPatternOverlays();
+            });
+            document.addEventListener('mouseup', () => { if (isResizing) { isResizing = false; document.body.style.cursor = ''; drawPatternOverlays(); }});
+        }
+        makeResizable('resizer1', 'codebook-panel', 'graph-panel');
+        makeResizable('resizer2', 'graph-panel', 'details-panel');
+
+        // ── Event listeners ────────────────────────────────────────────────────────
+        cy.on('tap', 'node', evt => showNodeDetails(evt.target));
+        cy.on('tap', 'edge', evt => showEdgeDetails(evt.target));
+        cy.on('tap', evt => {
+            if (evt.target === cy) {
+                document.getElementById('placeholder').style.display = 'block';
+                document.getElementById('details-content').style.display = 'none';
+                currentSelection = null; currentSelectionType = null;
+            }
+        });
+        cy.on('viewport', drawPatternOverlays);
+        window.addEventListener('beforeunload', e => { if (hasUnsavedChanges) { e.preventDefault(); e.returnValue = ''; }});
+        window.addEventListener('resize', drawPatternOverlays);
+
+        // ── Init ───────────────────────────────────────────────────────────────────
+        document.getElementById('doi-input').value = DOI;
+        if (nodesData.length > 0) updateGraph();
+        if (patternGroups.length === 0) document.getElementById('pattern-toggle').style.opacity = '0.5';
+        buildPatternDropdown();
+    </script>
+</body>
+</html>
