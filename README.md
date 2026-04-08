@@ -1,8 +1,7 @@
-# FAIRWorkflows# Annotation Tool
+# FAIRWorkflows - Workflow Annotation Tool
 
 A self-contained, browser-based annotation tool for capturing workflows from academic papers. You an open `index.html` in any modern browser.
 
----
 
 ## Files
 
@@ -12,7 +11,6 @@ annotation-tool/
 ├── codebook.md     — schema + controlled vocabularies
 ```
 
----
 
 ## Getting Started
 
@@ -22,18 +20,16 @@ annotation-tool/
 4. Annotate (see workflow below).
 5. Export CSVs when done.
 
----
-
 ## Annotation Workflow
 
 ### From scratch
 
-1. Load codebook → editors are ready
+1. Load codebook → will populate editor fields
 2. Load PDF → paper opens in left panel
 3. Enter the DOI/paper ID in the toolbar
 4. Click **+ Node** to add each workflow step; fill in the editor on the right
 5. Click **+ Edge** to connect nodes; fill in interaction details
-6. Click **Derive Patterns** to auto-detect structural motifs (needs to be linked to a script) 
+6. Click **Derive Patterns** to auto-detect structural motifs (needs to be linked to a derive script) 
 7. Fill in workflow-level **metadata** by clicking the Metadata button
 8. Export: **Export Nodes**, **Export Edges**, **Export Metadata**
 
@@ -44,7 +40,6 @@ annotation-tool/
 3. Review and edit by clicking nodes or edges in the graph
 4. Export updated CSVs
 
----
 
 ## Codebook Format
 
@@ -95,7 +90,6 @@ Tables with a `Code | Description` header define the valid values for a field. T
 
 Wire type colours are assigned in the order the codes appear in the `Wire Types` table.
 
----
 
 ## Exports
 
@@ -109,7 +103,6 @@ Wire type colours are assigned in the order the codes appear in the `Wire Types`
 
 Exported CSVs use the column names defined in the codebook field tables (with `Node_ID`, `From`, `To` as canonical names for the identifier columns). They can be re-loaded into the tool on a later session.
 
----
 
 ## Structural Pattern Detection
 
@@ -117,7 +110,6 @@ Click **Derive Patterns** to automatically identify recurring graph motifs. The 
 
 Patterns can be shown/hidden via the overlay dropdown in the toolbar. Detected patterns also drive the **Derived Quality Control** metadata field.
 
----
 
 ## Extending the Codebook
 
